@@ -90,8 +90,8 @@ class StudentController extends Controller
 
     public function destroy(Student $student, StudentSyncService $syncService): RedirectResponse
     {
+        DB::transaction(fn () => $student->delete());
         $syncService->publishDeleted($student);
-        $student->delete();
 
         return back()->with('success', 'Student deleted.');
     }

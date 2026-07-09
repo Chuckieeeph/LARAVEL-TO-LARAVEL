@@ -1,6 +1,7 @@
 # Accounting System
 
-Accounting System is the consumer application. It listens to the RabbitMQ queue published by the Enrollment System, validates the enrollment payload, creates or updates student records, computes tuition from fee schedules, generates assessments, stores an enrollment log, and writes the financial history in its own MySQL database.
+Accounting System is the consumer application. It listens to the RabbitMQ queue published by the Enrollment System, validates the enrollment payload, mirrors student, course, subject, and enrollment records into its own MySQL database, computes tuition from fee schedules, generates assessments, stores an enrollment log, and writes the financial history in its own MySQL database.
+It also stores an activity log for every incoming enrollment event, including student, course, subject, and enrollment changes.
 
 ## Roles
 
@@ -24,10 +25,13 @@ Accounting System is the consumer application. It listens to the RabbitMQ queue 
 
 1. Enrollment System publishes a student or enrollment event to the `school.events` exchange.
 2. Accounting System runs `php artisan rabbitmq:consume-enrollments`.
-3. The worker inspects `event_type` to decide whether the message is a student sync or an enrollment sync.
-4. Student sync messages create or update the student record in Accounting.
-5. Enrollment sync messages update the student, compute tuition, and create the assessment.
-6. Accounting System writes ledger entries and enrollment log records in its own database.
+3. The worker inspects `event_type` to decide whether the message is a student sync, an enrollment sync, or a log-only catalog event.
+4. Every incoming event is written to the activity log.
+5. Student sync messages create or update the student record in Accounting.
+6. Course sync messages create or update the mirrored course record.
+7. Subject sync messages create or update the mirrored subject record.
+8. Enrollment sync messages update the mirrored enrollment, compute tuition, and create the assessment.
+9. Accounting System writes ledger entries and enrollment log records in its own database.
 
 ## Project Structure
 

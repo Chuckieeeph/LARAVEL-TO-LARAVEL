@@ -1,13 +1,14 @@
 # Enrollment System
 
 Enrollment System is the producer application. It handles authentication, role-based access, student management, course management, subject management, and enrollment processing.
+It publishes student, course, subject, and enrollment events to RabbitMQ so the Accounting System can keep an activity log and process enrollment submissions.
 
-When a registrar creates or updates a student, or completes an enrollment, Enrollment System:
+When a registrar creates or updates a student, course, or subject, or completes an enrollment, Enrollment System:
 
 1. Saves the record in its own MySQL database.
 2. Generates a student number automatically when one is not supplied.
 3. Serializes the student or enrollment payload to JSON.
-4. Publishes the payload to RabbitMQ exchange `school.events` with routing keys such as `student.registered` and `enrollment.submitted`.
+4. Publishes the payload to RabbitMQ exchange `school.events` with routing keys such as `student.registered`, `course.created`, and `enrollment.submitted`.
 
 The accounting application lives in [`../Accounting System`](../Accounting%20System) and consumes that queue separately.
 

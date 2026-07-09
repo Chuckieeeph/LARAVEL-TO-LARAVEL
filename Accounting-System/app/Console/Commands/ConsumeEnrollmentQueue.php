@@ -3,7 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Services\AccountingEnrollmentProcessor;
+use App\Services\CourseSyncProcessor;
+use App\Services\EnrollmentActivityLogger;
 use App\Services\RabbitMqConsumer;
+use App\Services\SubjectSyncProcessor;
 use App\Services\StudentSyncProcessor;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -20,24 +23,42 @@ class ConsumeEnrollmentQueue extends Command
     public function handle(
         RabbitMqConsumer $consumer,
         AccountingEnrollmentProcessor $enrollmentProcessor,
-        StudentSyncProcessor $studentProcessor
+        StudentSyncProcessor $studentProcessor,
+        CourseSyncProcessor $courseProcessor,
+        SubjectSyncProcessor $subjectProcessor,
+        EnrollmentActivityLogger $activityLogger
     ): int
     {
         $queue = $this->option('queue') ?: config('rabbitmq.queue', 'accounting.events');
         $this->info("Listening on queue: {$queue}");
 
-        $consumer->consume($queue, function (AMQPMessage $message) use ($enrollmentProcessor, $studentProcessor): void {
+        $consumer->consume($queue, function (AMQPMessage $message) use ($enrollmentProcessor, $studentProcessor, $courseProcessor, $subjectProcessor, $activityLogger): void {
             $deliveryTag = $message->getDeliveryTag();
             $channel = $message->getChannel();
 
             try {
                 $payload = json_decode($message->getBody(), true, 512, JSON_THROW_ON_ERROR);
                 $eventType = $payload['event_type'] ?? 'EnrollmentSubmitted';
+                $activityLogger->logReceived($payload);
 
                 if (in_array($eventType, ['StudentRegistered', 'StudentProfileUpdated', 'StudentArchived'], true)) {
                     $studentProcessor->process($payload);
-                } else {
+                    $activityLogger->logProcessed($payload);
+                } elseif (in_array($eventType, ['CourseCreated', 'CourseUpdated', 'CourseDeleted'], true)) {
+                    $courseProcessor->process($payload);
+                    $activityLogger->logProcessed($payload);
+                } elseif (in_array($eventType, ['SubjectCreated', 'SubjectUpdated', 'SubjectDeleted'], true)) {
+                    $subjectProcessor->process($payload);
+                    $activityLogger->logProcessed($payload);
+                } elseif ($eventType === 'EnrollmentSubmitted') {
                     $enrollmentProcessor->process($payload);
+                    $activityLogger->logProcessed($payload);
+                } else {
+                    $activityLogger->logIgnored($payload);
+                    Log::info('RabbitMQ enrollment consumer logged an event without domain processing', [
+                        'event_type' => $eventType,
+                        'routing_key' => $payload['metadata']['routing_key'] ?? null,
+                    ]);
                 }
 
                 $channel->basic_ack($deliveryTag);
@@ -46,6 +67,7 @@ class ConsumeEnrollmentQueue extends Command
                 $metadata = $payload['metadata'] ?? [];
                 $retryCount = (int) ($metadata['retry_count'] ?? 0);
                 $routingKey = $metadata['routing_key'] ?? $this->routingKeyForEvent($payload['event_type'] ?? 'EnrollmentSubmitted');
+                $activityLogger->logRetrying($payload, $throwable->getMessage());
 
                 Log::error('RabbitMQ enrollment consumer failed', [
                     'error' => $throwable->getMessage(),
@@ -75,6 +97,7 @@ class ConsumeEnrollmentQueue extends Command
                     return;
                 }
 
+                $activityLogger->logFailed($payload, $throwable->getMessage());
                 $channel->basic_nack($deliveryTag, false, false);
             }
         });
@@ -89,6 +112,12 @@ class ConsumeEnrollmentQueue extends Command
             'StudentProfileUpdated' => 'student.profile.updated',
             'StudentArchived' => 'student.archived',
             'EnrollmentSubmitted' => 'enrollment.submitted',
+            'CourseCreated' => 'course.created',
+            'CourseUpdated' => 'course.updated',
+            'CourseDeleted' => 'course.deleted',
+            'SubjectCreated' => 'subject.created',
+            'SubjectUpdated' => 'subject.updated',
+            'SubjectDeleted' => 'subject.deleted',
             default => Str::of($eventType)->snake()->replace('_', '.')->toString(),
         };
     }

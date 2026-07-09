@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreSubjectRequest;
 use App\Models\Course;
 use App\Models\Subject;
+use App\Services\SubjectSyncService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class SubjectController extends Controller
@@ -47,9 +49,10 @@ class SubjectController extends Controller
         ]);
     }
 
-    public function store(StoreSubjectRequest $request): RedirectResponse
+    public function store(StoreSubjectRequest $request, SubjectSyncService $syncService): RedirectResponse
     {
-        Subject::create($request->validated());
+        $subject = DB::transaction(fn (): Subject => Subject::create($request->validated()));
+        $syncService->publishCreated($subject);
 
         return redirect()->route('subjects.index')->with('success', 'Subject created.');
     }
@@ -65,16 +68,18 @@ class SubjectController extends Controller
         ]);
     }
 
-    public function update(StoreSubjectRequest $request, Subject $subject): RedirectResponse
+    public function update(StoreSubjectRequest $request, Subject $subject, SubjectSyncService $syncService): RedirectResponse
     {
-        $subject->update($request->validated());
+        DB::transaction(fn () => $subject->update($request->validated()));
+        $syncService->publishUpdated($subject);
 
         return redirect()->route('subjects.index')->with('success', 'Subject updated.');
     }
 
-    public function destroy(Subject $subject): RedirectResponse
+    public function destroy(Subject $subject, SubjectSyncService $syncService): RedirectResponse
     {
-        $subject->delete();
+        DB::transaction(fn () => $subject->delete());
+        $syncService->publishDeleted($subject);
 
         return back()->with('success', 'Subject deleted.');
     }

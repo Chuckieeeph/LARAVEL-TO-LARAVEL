@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreCourseRequest;
 use App\Models\Course;
+use App\Services\CourseSyncService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class CourseController extends Controller
@@ -44,9 +46,10 @@ class CourseController extends Controller
         ]);
     }
 
-    public function store(StoreCourseRequest $request): RedirectResponse
+    public function store(StoreCourseRequest $request, CourseSyncService $syncService): RedirectResponse
     {
-        Course::create($request->validated());
+        $course = DB::transaction(fn (): Course => Course::create($request->validated()));
+        $syncService->publishCreated($course);
 
         return redirect()->route('courses.index')->with('success', 'Course created.');
     }
@@ -62,16 +65,18 @@ class CourseController extends Controller
         ]);
     }
 
-    public function update(StoreCourseRequest $request, Course $course): RedirectResponse
+    public function update(StoreCourseRequest $request, Course $course, CourseSyncService $syncService): RedirectResponse
     {
-        $course->update($request->validated());
+        DB::transaction(fn () => $course->update($request->validated()));
+        $syncService->publishUpdated($course);
 
         return redirect()->route('courses.index')->with('success', 'Course updated.');
     }
 
-    public function destroy(Course $course): RedirectResponse
+    public function destroy(Course $course, CourseSyncService $syncService): RedirectResponse
     {
-        $course->delete();
+        DB::transaction(fn () => $course->delete());
+        $syncService->publishDeleted($course);
 
         return back()->with('success', 'Course deleted.');
     }

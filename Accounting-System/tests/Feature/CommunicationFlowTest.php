@@ -3,9 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\Assessment;
+use App\Models\Course;
 use App\Models\FeeSchedule;
+use App\Models\Enrollment;
 use App\Models\LedgerEntry;
+use App\Models\Subject;
 use App\Services\AccountingEnrollmentProcessor;
+use App\Services\CourseSyncProcessor;
+use App\Services\SubjectSyncProcessor;
 use App\Services\StudentSyncProcessor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
@@ -71,6 +76,21 @@ class CommunicationFlowTest extends TestCase
             'last_name' => 'Fillartos',
             'course_code' => 'BSIT',
         ]);
+        $this->assertDatabaseHas('courses', [
+            'course_code' => 'BSIT',
+            'course_name' => 'Bachelor of Science in Information Technology',
+            'status' => 'active',
+        ]);
+        $this->assertDatabaseHas('subjects', [
+            'subject_code' => 'IT101',
+            'subject_name' => 'Intro to Computing',
+        ]);
+        $this->assertDatabaseHas('enrollments', [
+            'enrollment_reference_number' => 'EMS-20260707-ABC123',
+            'student_number' => '2026-0001',
+            'status' => 'enrolled',
+            'total_units' => 7,
+        ]);
         $this->assertDatabaseHas('financial_accounts', [
             'student_id' => $assessment->student_id,
             'status' => 'Pending Assessment',
@@ -90,6 +110,8 @@ class CommunicationFlowTest extends TestCase
         ]);
 
         $this->assertSame(1, LedgerEntry::count());
+        $this->assertSame(1, Enrollment::count());
+        $this->assertSame(2, Subject::count());
     }
 
     public function test_the_student_sync_processor_upserts_a_student_record(): void
@@ -126,6 +148,67 @@ class CommunicationFlowTest extends TestCase
         $this->assertDatabaseHas('financial_accounts', [
             'student_id' => $student->id,
             'status' => 'Pending Assessment',
+        ]);
+    }
+
+    public function test_the_course_sync_processor_mirrors_course_changes(): void
+    {
+        Log::shouldReceive('info')->once();
+
+        $course = app(CourseSyncProcessor::class)->process([
+            'event_type' => 'CourseCreated',
+            'course' => [
+                'course_code' => 'BSBA',
+                'course_name' => 'Bachelor of Science in Business Administration',
+                'department' => 'College of Business',
+                'year_level' => 4,
+            ],
+        ]);
+
+        $this->assertSame('BSBA', $course->course_code);
+        $this->assertDatabaseHas('courses', [
+            'course_code' => 'BSBA',
+            'course_name' => 'Bachelor of Science in Business Administration',
+            'department' => 'College of Business',
+            'status' => 'active',
+        ]);
+    }
+
+    public function test_the_subject_sync_processor_mirrors_subject_changes(): void
+    {
+        Log::shouldReceive('info')->once();
+
+        $course = Course::create([
+            'course_code' => 'BSIT',
+            'course_name' => 'Bachelor of Science in Information Technology',
+            'department' => 'College of Computer Studies',
+            'year_level' => 4,
+            'status' => 'active',
+        ]);
+
+        $subject = app(SubjectSyncProcessor::class)->process([
+            'event_type' => 'SubjectCreated',
+            'subject' => [
+                'subject_code' => 'IT101',
+                'subject_name' => 'Introduction to Computing',
+                'units' => 3,
+                'semester' => '1st Semester',
+                'course_id' => $course->id,
+            ],
+            'course' => [
+                'course_code' => 'BSIT',
+                'course_name' => 'Bachelor of Science in Information Technology',
+                'department' => 'College of Computer Studies',
+                'year_level' => 4,
+            ],
+        ]);
+
+        $this->assertSame('IT101', $subject->subject_code);
+        $this->assertDatabaseHas('subjects', [
+            'subject_code' => 'IT101',
+            'subject_name' => 'Introduction to Computing',
+            'course_id' => $course->id,
+            'status' => 'active',
         ]);
     }
 }

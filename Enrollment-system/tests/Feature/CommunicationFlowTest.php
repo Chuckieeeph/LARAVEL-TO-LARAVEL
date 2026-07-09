@@ -7,8 +7,10 @@ use App\Models\Student;
 use App\Models\Subject;
 use App\Models\User;
 use App\Services\EnrollmentService;
+use App\Services\CourseSyncService;
 use App\Services\RabbitMqPublisher;
 use App\Services\StudentSyncService;
+use App\Services\SubjectSyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use Tests\TestCase;
@@ -122,5 +124,66 @@ class CommunicationFlowTest extends TestCase
         $this->instance(RabbitMqPublisher::class, $publisher);
 
         app(StudentSyncService::class)->publishCreated($student);
+    }
+
+    public function test_the_course_sync_service_publishes_course_payload(): void
+    {
+        $course = Course::create([
+            'course_code' => 'BSIT',
+            'course_name' => 'Bachelor of Science in Information Technology',
+            'department' => 'College of Computer Studies',
+            'year_level' => 4,
+        ]);
+
+        $publisher = Mockery::mock(RabbitMqPublisher::class);
+        $publisher->shouldReceive('publishEvent')
+            ->once()
+            ->with(
+                'course.created',
+                'CourseCreated',
+                Mockery::on(function (array $payload) use ($course): bool {
+                    return $payload['course']['course_code'] === $course->course_code
+                        && $payload['course']['course_name'] === $course->course_name
+                        && $payload['course']['year_level'] === 4;
+                })
+            );
+
+        $this->instance(RabbitMqPublisher::class, $publisher);
+
+        app(CourseSyncService::class)->publishCreated($course);
+    }
+
+    public function test_the_subject_sync_service_publishes_subject_payload(): void
+    {
+        $course = Course::create([
+            'course_code' => 'BSIT',
+            'course_name' => 'Bachelor of Science in Information Technology',
+            'department' => 'College of Computer Studies',
+            'year_level' => 4,
+        ]);
+        $subject = Subject::create([
+            'subject_code' => 'IT101',
+            'subject_name' => 'Introduction to Computing',
+            'units' => 3,
+            'semester' => '1st Semester',
+            'course_id' => $course->id,
+        ]);
+
+        $publisher = Mockery::mock(RabbitMqPublisher::class);
+        $publisher->shouldReceive('publishEvent')
+            ->once()
+            ->with(
+                'subject.created',
+                'SubjectCreated',
+                Mockery::on(function (array $payload) use ($subject): bool {
+                    return $payload['subject']['subject_code'] === $subject->subject_code
+                        && $payload['subject']['subject_name'] === $subject->subject_name
+                        && $payload['course']['course_code'] === 'BSIT';
+                })
+            );
+
+        $this->instance(RabbitMqPublisher::class, $publisher);
+
+        app(SubjectSyncService::class)->publishCreated($subject);
     }
 }

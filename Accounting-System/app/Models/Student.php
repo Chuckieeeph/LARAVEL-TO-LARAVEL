@@ -41,6 +41,11 @@ class Student extends Model
         return $this->hasMany(LedgerEntry::class);
     }
 
+    public function enrollments(): HasMany
+    {
+        return $this->hasMany(Enrollment::class);
+    }
+
     public function financialAccount(): HasOne
     {
         return $this->hasOne(FinancialAccount::class);
